@@ -1,5 +1,6 @@
 using ForwardDiff
 using IterativeSolvers
+using Plots
 
 function rosenbrock(x)
     a = 1.0
@@ -8,51 +9,37 @@ function rosenbrock(x)
 end
  
 function square(x)
-    return [x[1]*x[1]*x[1]*x[1] - 612]
+    [x[1]*x[1]*x[1]*x[1] - 612]
 end
 
 function mysin(x)
-    return [sin(x[1])]
+    [sin(x[1])]
 end
 
-# function myfunc(x)
-#     cos(-((x[1]-3)^2+(x[2]-3)^2))
-# end
-
-function newton(x0, f)
+function newton(x0, f, eps = 1e-6, maxiter = 1000, debug = false)
     J = x -> ForwardDiff.jacobian(f, x);
     H = x -> ForwardDiff.jacobian(J, x);
-    eps = 1e-6
     x = x0
     iter = 0
-    maxiter = 1000
     while norm(J(x)) > eps  && iter < maxiter
-        # println("Newton iteration: ", iter)
-        # println("J: ", J(x))
-        # println("f: ", f(x))
         hes = H(x)
         jac = J(x)
         s = hes\transpose(jac)
         x = x - s
-        println("x: ", x, " ", s)
+        debug && println("x: ", x, " ", s)
         iter=iter+1
     end
-    println("Gradient: ", J(x))
-    x, iter
+    x, iter, norm(J(x))
 end
 
-function halley(x0, f)
+function halley(x0, f, eps = 1e-6, maxiter = 1000, debug = false)
     J = x -> ForwardDiff.jacobian(f, x);
     H = x -> ForwardDiff.jacobian(J, x);
     T = x -> ForwardDiff.jacobian(H, x);
-    # T = x -> ForwardDiff.jacobian(x -> ForwardDiff.jacobian(f, x), x);
-    eps = 1e-6
     x = x0
     iter = 0
-    maxiter = 20
     dim = size(x0,1)
     while norm(J(x)) > eps  && iter < maxiter
-        println("Halley iteration: ", iter)
         ten = T(x)
         hes = H(x)
         jac = J(x)
@@ -67,31 +54,23 @@ function halley(x0, f)
           end
         end
         A = 2*hes^2 - transpose(contr)
-        println("A: ", A, " hes: ", hes^2, " contr: ", contr)
         b = 2*jac*hes
         s = A\transpose(b)
         x = x - s
-        println("x: ", x, " ", s)
+        debug && println("x: ", x, " ", s)
         iter=iter+1
     end
-    println("Gradient: ", norm(J(x)))
-    println("Hessian: ", norm(H(x)))
-    println("Tensor: ", norm(T(x)))
-    x, iter
+    x, iter, norm(J(x))
 end
 
-function halley2(x0, f)
+function cheby(x0, f, eps = 1e-6, maxiter = 1000, debug = false)
     J = x -> ForwardDiff.jacobian(f, x);
     H = x -> ForwardDiff.jacobian(J, x);
     T = x -> ForwardDiff.jacobian(H, x);
-    # T = x -> ForwardDiff.jacobian(x -> ForwardDiff.jacobian(f, x), x);
-    eps = 1e-6
     x = x0
     iter = 0
-    maxiter = 20
     dim = size(x0,1)
     while norm(J(x)) > eps  && iter < maxiter
-        println("Halley iteration: ", iter)
         ten = T(x)
         hes = H(x)
         jac = J(x)
@@ -106,39 +85,66 @@ function halley2(x0, f)
             end
           end
         end
-        A = hes + 0.5*transpose(contr)
         A = hes
-        println("s: ", s)
-        println("contr: ", contr)
-        # println("s*s: ", transpose(s)*s)
-        b = 0.5*contr*s
+        s3 = zeros(s)
+        for i = 1:dim 
+          s3[i] = 0
+          for j = 1:dim 
+              s3[i] += contr[i,j] * s[j]
+          end
+        end
+        b = 0.5*s3
         s2 = A\b
 
         x = x - s - s2
-        println("x: ", x, " ", s, " ", s2)
-        println("Tensor: ", norm(T(x)))
+        debug && println("x: ", x, " ", s, " ", s2)
         iter=iter+1
     end
-    println("Gradient: ", norm(J(x)))
-    println("Hessian: ", norm(H(x)))
-    println("Tensor: ", norm(T(x)))
-    x, iter
+    x, iter, norm(J(x))
 end
 x2 = [-1.0]
 x0 = [-3.0, -4.0]
 x1 = [10.0]
-x3 = [3.14,3.14]
 
-println("Solution at ", newton(x0, rosenbrock))
-println("Solution at ", halley(x0, rosenbrock))
-# println("Solution: ", newton(x1, square))
-# println("Solution at ", halley(x1, square))
+x = x1 ; f = square
+x = x0 ; f = rosenbrock
+x = x2 ; f = mysin
+debug = false
+myeps = 1e-6
+maxiter = 20
 
-# println("Solution: ", newton(x2, mysin))
-# println("Solution at ", halley(x2, mysin))
+funclist = [[x0, rosenbrock], [x1, square], [x2, mysin]] 
 
-# println(myfunc(x3))
-# println("Solution: ", newton(x3, myfunc))
-# println("Solution at ", halley(x3, myfunc))
+for x in funclist
+    println("Running ", x[2], " with starting point ", x[1], ".")
+    try 
+        res = newton(x[1], x[2], myeps, maxiter, debug)
+        println("Newton solution ", res[1], " with ", res[2], " iterations and residual norm(J) of ", res[3], ".")
+    catch ex
+        println("Newton not converged with exception ", ex, ".")
+        debug && throw(ex)
+    end
+    
+    try 
+        res = halley(x[1], x[2], myeps, maxiter, debug)
+        println("Halley solution ", res[1], " with ", res[2], " iterations and residual norm(J) of ", res[3], ".")
+    catch ex
+        println("Halley not converged with exception ", ex, ".")
+        debug && throw(ex)
+    end
+    
+    
+    try 
+        res = cheby(x[1], x[2], myeps, maxiter, debug)
+        println("Chebychev solution ", res[1], " with ", res[2], " iterations and residual norm(J) of ", res[3], ".")
+    catch ex
+        println("Chebychev not converged with exception ", ex, ".")
+        debug && throw(ex)
+    end
+    println("")
+end
+    
+
+
 
 
